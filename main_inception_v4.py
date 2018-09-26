@@ -5,8 +5,6 @@ Created on Thu Sep 20 16:16:39 2018
 @ author: herbert-chen
 '''
 import os
-import time
-import shutil
 import random
 import numpy as np
 import pandas as pd
@@ -14,15 +12,14 @@ from PIL import Image
 from tqdm import tqdm
 from collections import OrderedDict
 from sklearn.model_selection import train_test_split
-
 import model_v4
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torchvision.models as models
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset, DataLoader
+import time
+from config import config
 
 
 def main():
@@ -31,20 +28,6 @@ def main():
     torch.manual_seed(666)
     torch.cuda.manual_seed_all(666)
     random.seed(666)
-
-    # 获取当前文件名，用于创建模型及结果文件的目录
-    file_name = os.path.basename(__file__).split('.')[0]
-    # 创建保存模型和结果的文件夹
-    if not os.path.exists('./model/%s' % file_name):
-        os.makedirs('./model/%s' % file_name)
-    if not os.path.exists('./result/%s' % file_name):
-        os.makedirs('./result/%s' % file_name)
-    # 创建日志文件
-    if not os.path.exists('./result/%s.txt' % file_name):
-        with open('./result/%s.txt' % file_name, 'w') as acc_file:
-            pass
-    with open('./result/%s.txt' % file_name, 'a') as acc_file:
-        acc_file.write('\n%s %s\n' % (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time())), file_name))
 
     # 默认使用PIL读图
     def default_loader(path):
@@ -251,16 +234,12 @@ def main():
 
         # 生成结果文件，保存在result文件夹中，可用于直接提交
         submission = pd.DataFrame({'filename': sub_filename, 'label': sub_label})
-        submission.to_csv('./result/%s/submission.csv' % file_name, header=None, index=False)
+        submission.to_csv(os.path.join(config.base_path,'submission.txt'), header=None, index=False)
         return
 
     # 保存最新模型以及最优模型
-    def save_checkpoint(state, is_best, is_lowest_loss, filename='./model/%s/checkpoint.pth.tar' % file_name):
+    def save_checkpoint(state, filename):
         torch.save(state, filename)
-        if is_best:
-            shutil.copyfile(filename, './model/%s/model_best.pth.tar' % file_name)
-        if is_lowest_loss:
-            shutil.copyfile(filename, './model/%s/lowest_loss.pth.tar' % file_name)
 
     # 用于计算精度和时间的变化
     class AverageMeter(object):
@@ -280,12 +259,6 @@ def main():
             self.count += n
             self.avg = self.sum / self.count
 
-    # 学习率衰减：lr = lr / lr_decay
-    def adjust_learning_rate():
-        nonlocal lr
-        lr = lr / lr_decay
-        return optim.Adam(model.parameters(), lr, weight_decay=weight_decay, amsgrad=True)
-
     # 计算top K准确率
     def accuracy(y_pred, y_actual, topk=(1,)):
         """Computes the precision@k for the specified values of k"""
@@ -304,20 +277,18 @@ def main():
         else:
             final_acc = PRED_CORRECT_COUNT / PRED_COUNT
         return final_acc * 100, PRED_COUNT
-    
-    # 程序主体
 
     # 设定GPU ID
-    os.environ["CUDA_VISIBLE_DEVICES"] = '0, 1'
+    os.environ["CUDA_VISIBLE_DEVICES"] = '0'
     # 小数据集上，batch size不易过大。如出现out of memory，应调小batch size
     batch_size = 24
     # 进程数量，最好不要超过电脑最大进程数，尽量能被batch size整除。windows下报错可以改为workers=0
     workers = 12
 
     # epoch数量，分stage进行，跑完一个stage后降低学习率进入下一个stage
-    stage_epochs = [20, 10, 10]  
+    stage_epochs = [10, 20, 25]
     # 初始学习率
-    lr = 1e-4
+    lr = 4*1e-6*batch_size
     # 学习率衰减系数 (new_lr = lr / lr_decay)
     lr_decay = 5
     # 正则化系数
@@ -326,7 +297,7 @@ def main():
     # 参数初始化
     stage = 0
     start_epoch = 0
-    total_epochs = sum(stage_epochs)
+    total_epochs = 30
     best_precision = 0
     lowest_loss = 100
 
@@ -337,15 +308,13 @@ def main():
     val_ratio = 0.12
     # 是否只验证，不训练
     evaluate = False
-    # 是否从断点继续跑
-    resume = False
     # 创建inception_v4模型
     model = model_v4.v4(num_classes=12)
     model = torch.nn.DataParallel(model).cuda()
 
     # optionally resume from a checkpoint
-    if resume:
-        checkpoint_path = './model/%s/checkpoint.pth.tar' % file_name
+    if config.load_mode_path is not None:
+        checkpoint_path = config.load_mode_path
         if os.path.isfile(checkpoint_path):
             print("=> loading checkpoint '{}'".format(checkpoint_path))
             checkpoint = torch.load(checkpoint_path)
@@ -355,21 +324,16 @@ def main():
             stage = checkpoint['stage']
             lr = checkpoint['lr']
             model.load_state_dict(checkpoint['state_dict'])
-            # 如果中断点恰好为转换stage的点，需要特殊处理
-            if start_epoch in np.cumsum(stage_epochs)[:-1]:
-                stage += 1
-                optimizer = adjust_learning_rate()
-                model.load_state_dict(torch.load('./model/%s/model_best.pth.tar' % file_name)['state_dict'])
             print("=> loaded checkpoint (epoch {})".format(checkpoint['epoch']))
         else:
-            print("=> no checkpoint found at '{}'".format(resume))
+            print("=> no checkpoint found")
 
     # 读取训练图片列表
-    all_data = pd.read_csv('data/label.csv')
+    all_data = pd.read_csv(config.train.label)
     # 分离训练集和测试集，stratify参数用于分层抽样
     train_data_list, val_data_list = train_test_split(all_data, test_size=val_ratio, random_state=666, stratify=all_data['label'])
     # 读取测试图片列表
-    test_data_list = pd.read_csv('data/test.csv')
+    test_data_list = pd.read_csv(config.test.imageList)
 
     # 图片归一化，由于采用ImageNet预训练网络，因此这里直接采用ImageNet网络的参数
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
@@ -417,23 +381,32 @@ def main():
     # 优化器，使用带amsgrad的Adam
     optimizer = optim.Adam(model.parameters(), lr, weight_decay=weight_decay, amsgrad=True)
 
+    best_epoch = 0
     if evaluate:
         validate(val_loader, model, criterion)
     else:
         # 开始训练
         for epoch in range(start_epoch, total_epochs):
+            # 判断是否进行下一个stage
+            lr = 4 * 1e-6 * batch_size
+            for stage in stage_epochs:
+                if epoch+1 >= stage:
+                    lr /= lr_decay
+            print("adjust lr to {}".format(lr))
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = lr
             # train for one epoch
             train(train_loader, model, criterion, optimizer, epoch)
             # evaluate on validation set
             precision, avg_loss = validate(val_loader, model, criterion)
 
             # 在日志文件中记录每个epoch的精度和loss
-            with open('./result/%s.txt' % file_name, 'a') as acc_file:
+            with open(config.exp.log_path, 'a') as acc_file:
                 acc_file.write('Epoch: %2d, Precision: %.8f, Loss: %.8f\n' % (epoch, precision, avg_loss))
 
             # 记录最高精度与最低loss，保存最新模型与最佳模型
-            is_best = precision > best_precision
-            is_lowest_loss = avg_loss < lowest_loss
+            if precision > best_precision:
+                best_epoch = epoch
             best_precision = max(precision, best_precision)
             lowest_loss = min(avg_loss, lowest_loss)
             state = {
@@ -444,31 +417,20 @@ def main():
                 'stage': stage,
                 'lr': lr,
             }
-            save_checkpoint(state, is_best, is_lowest_loss)
-
-            # 判断是否进行下一个stage
-            if (epoch + 1) in np.cumsum(stage_epochs)[:-1]:
-                stage += 1
-                optimizer = adjust_learning_rate()
-                model.load_state_dict(torch.load('./model/%s/model_best.pth.tar' % file_name)['state_dict'])
-                print('Step into next stage')
-                with open('./result/%s.txt' % file_name, 'a') as acc_file:
-                    acc_file.write('---------------Step into next stage----------------\n')
+            save_checkpoint(state, os.path.join(config.exp.model_path, "{}.pth".format(epoch)))
 
     # 记录线下最佳分数
-    with open('./result/%s.txt' % file_name, 'a') as acc_file:
-        acc_file.write('* best acc: %.8f  %s\n' % (best_precision, os.path.basename(__file__)))
-    with open('./result/best_acc.txt', 'a') as acc_file:
-        acc_file.write('%s  * best acc: %.8f  %s\n' % (
-        time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time())), best_precision, os.path.basename(__file__)))
+        with open(config.summary_file, 'a') as acc_file:
+            acc_file.write('* best acc: %.8f  %s\n' % (best_precision, os.path.basename(__file__)))
 
     # 读取最佳模型，预测测试集，并生成可直接提交的结果文件
-    best_model = torch.load('./model/%s/model_best.pth.tar' % file_name)
+    best_model = torch.load(os.path.join(config.exp.model_path, "{}.pth".format(best_epoch)))
     model.load_state_dict(best_model['state_dict'])
     test(test_loader=test_loader, model=model)
 
     # 释放GPU缓存
     torch.cuda.empty_cache()
+
 
 if __name__ == '__main__':
     main()
