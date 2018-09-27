@@ -18,6 +18,20 @@ label_warp = {'正常': 0,
               '其他': 11,
               }
 
+binary_lable_warp ={'正常': 0,
+                    '不导电': 1,
+                    '擦花': 1,
+                    '横条压凹': 1,
+                    '桔皮': 1,
+                    '漏底': 1,
+                    '碰伤': 1,
+                    '起坑': 1,
+                    '凸粉': 1,
+                    '涂层开裂': 1,
+                    '脏点': 1,
+                    '其他': 1,
+                    }
+
 # train data
 img_path, label = [], []
 
@@ -59,7 +73,7 @@ for data_path in config.train.imageDir_list:
                                     label.append(defect_label)
 
 label_file = pd.DataFrame({'img_path': img_path, 'label': label})
-label_file['label'] = label_file['label'].map(label_warp)
+label_file['label'] = label_file['label'].map(binary_lable_warp)
 
 label_file.to_csv(config.train.label, index=False)
 

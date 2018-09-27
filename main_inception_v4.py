@@ -234,8 +234,17 @@ def main():
 
         # 生成结果文件，保存在result文件夹中，可用于直接提交
         submission = pd.DataFrame({'filename': sub_filename, 'label': sub_label})
-        submission.to_csv(os.path.join(config.base_path,'submission.txt'), header=None, index=False)
+        submission.to_csv(os.path.join(config.exp.base, 'submission.csv'), header=None, index=False)
         return
+
+    def adjustLR(optimizer, epoch):
+        lr = config.train.lr
+        for stage in config.train.stage_epochs:
+            if epoch + 1 >= stage:
+                lr /= config.train.lr_decay
+        print("adjust lr to {}".format(lr))
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
 
     # 保存最新模型以及最优模型
     def save_checkpoint(state, filename):
@@ -280,64 +289,42 @@ def main():
 
     # 设定GPU ID
     os.environ["CUDA_VISIBLE_DEVICES"] = '0'
-    # 小数据集上，batch size不易过大。如出现out of memory，应调小batch size
-    batch_size = 24
-    # 进程数量，最好不要超过电脑最大进程数，尽量能被batch size整除。windows下报错可以改为workers=0
-    workers = 12
 
-    # epoch数量，分stage进行，跑完一个stage后降低学习率进入下一个stage
-    stage_epochs = [10, 20, 25]
-    # 初始学习率
-    lr = 4*1e-6*batch_size
-    # 学习率衰减系数 (new_lr = lr / lr_decay)
-    lr_decay = 5
-    # 正则化系数
-    weight_decay = 1e-4
-
-    # 参数初始化
-    stage = 0
-    start_epoch = 0
-    total_epochs = 30
     best_precision = 0
     lowest_loss = 100
 
     # 设定打印频率，即多少step打印一次，用于观察loss和acc的实时变化
     # 打印结果中，括号前面为实时loss和acc，括号内部为epoch内平均loss和acc
     print_freq = 1
-    # 验证集比例
-    val_ratio = 0.12
     # 是否只验证，不训练
     evaluate = False
     # 创建inception_v4模型
-    model = model_v4.v4(num_classes=12)
+    model = model_v4.v4(num_classes=config.train.num_classes)
     model = torch.nn.DataParallel(model).cuda()
-
-    # optionally resume from a checkpoint
-    if config.load_mode_path is not None:
-        checkpoint_path = config.load_mode_path
-        if os.path.isfile(checkpoint_path):
-            print("=> loading checkpoint '{}'".format(checkpoint_path))
-            checkpoint = torch.load(checkpoint_path)
-            start_epoch = checkpoint['epoch'] + 1
-            best_precision = checkpoint['best_precision']
-            lowest_loss = checkpoint['lowest_loss']
-            stage = checkpoint['stage']
-            lr = checkpoint['lr']
-            model.load_state_dict(checkpoint['state_dict'])
-            print("=> loaded checkpoint (epoch {})".format(checkpoint['epoch']))
-        else:
-            print("=> no checkpoint found")
 
     # 读取训练图片列表
     all_data = pd.read_csv(config.train.label)
-    # 分离训练集和测试集，stratify参数用于分层抽样
-    train_data_list, val_data_list = train_test_split(all_data, test_size=val_ratio, random_state=666, stratify=all_data['label'])
     # 读取测试图片列表
     test_data_list = pd.read_csv(config.test.imageList)
-
     # 图片归一化，由于采用ImageNet预训练网络，因此这里直接采用ImageNet网络的参数
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    
+
+    # 分离训练集和测试集，stratify参数用于分层抽样
+    if config.val_ratio is not None:
+        train_data_list, val_data_list = train_test_split(all_data, test_size=config.val_ratio, random_state=666, stratify=all_data['label'])
+        # 验证集图片变换
+        val_data = ValDataset(val_data_list,
+                          transform=transforms.Compose([
+                              transforms.Resize((400, 400)),
+                              transforms.CenterCrop(384),
+                              transforms.ToTensor(),
+                              normalize,
+                          ]))
+        val_loader = DataLoader(val_data, batch_size=config.test.batch_size, shuffle=False, pin_memory=False,
+                                num_workers=config.workers)
+    else:
+        train_data_list = all_data
+
     # 训练集图片变换，输入网络的尺寸为384*384
     train_data = TrainDataset(train_data_list,
                               transform=transforms.Compose([
@@ -352,15 +339,6 @@ def main():
                                   normalize,
                               ]))
 
-    # 验证集图片变换
-    val_data = ValDataset(val_data_list,
-                          transform=transforms.Compose([
-                              transforms.Resize((400, 400)),
-                              transforms.CenterCrop(384),
-                              transforms.ToTensor(),
-                              normalize,
-                          ]))
-
     # 测试集图片变换
     test_data = TestDataset(test_data_list,
                             transform=transforms.Compose([
@@ -371,60 +349,78 @@ def main():
                             ]))
 
     # 生成图片迭代器
-    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, pin_memory=True, num_workers=workers)
-    val_loader = DataLoader(val_data, batch_size=batch_size*2, shuffle=False, pin_memory=False, num_workers=workers)
-    test_loader = DataLoader(test_data, batch_size=batch_size*2, shuffle=False, pin_memory=False, num_workers=workers)
+    train_loader = DataLoader(train_data, batch_size=config.train.batch_size, shuffle=True, pin_memory=True, num_workers=config.workers)
+    test_loader = DataLoader(test_data, batch_size=config.test.batch_size, shuffle=False, pin_memory=False, num_workers=config.workers)
 
     # 使用交叉熵损失函数
     criterion = nn.CrossEntropyLoss().cuda()
 
     # 优化器，使用带amsgrad的Adam
-    optimizer = optim.Adam(model.parameters(), lr, weight_decay=weight_decay, amsgrad=True)
+    optimizer = optim.Adam(model.parameters(), config.train.lr, weight_decay=config.train.weight_decay, amsgrad=True)
 
     best_epoch = 0
+    # optionally resume from a checkpoint
+    if config.load_mode_path is not None:
+        checkpoint_path = config.load_mode_path
+        if os.path.isfile(checkpoint_path):
+            print("=> loading checkpoint '{}'".format(checkpoint_path))
+            checkpoint = torch.load(checkpoint_path)
+            start_epoch = checkpoint['epoch'] + 1
+            best_precision = checkpoint['best_precision']
+            lowest_loss = checkpoint['lowest_loss']
+            model.load_state_dict(checkpoint['state_dict'])
+            print("=> loaded checkpoint (epoch {})".format(checkpoint['epoch']))
+        else:
+            print("=> no checkpoint found")
+    else:
+        start_epoch = 0
     if evaluate:
         validate(val_loader, model, criterion)
     else:
         # 开始训练
-        for epoch in range(start_epoch, total_epochs):
-            # 判断是否进行下一个stage
-            lr = 4 * 1e-6 * batch_size
-            for stage in stage_epochs:
-                if epoch+1 >= stage:
-                    lr /= lr_decay
-            print("adjust lr to {}".format(lr))
-            for param_group in optimizer.param_groups:
-                param_group['lr'] = lr
+        for epoch in range(start_epoch, config.train.epochs):
+
             # train for one epoch
             train(train_loader, model, criterion, optimizer, epoch)
-            # evaluate on validation set
-            precision, avg_loss = validate(val_loader, model, criterion)
+            adjustLR(optimizer, epoch)
+            if config.val_ratio is not None:
+                # evaluate on validation set
+                precision, avg_loss = validate(val_loader, model, criterion)
 
-            # 在日志文件中记录每个epoch的精度和loss
-            with open(config.exp.log_path, 'a') as acc_file:
-                acc_file.write('Epoch: %2d, Precision: %.8f, Loss: %.8f\n' % (epoch, precision, avg_loss))
+                # 在日志文件中记录每个epoch的精度和loss
+                with open(config.exp.log_path, 'a') as acc_file:
+                    acc_file.write('Epoch: %2d, Precision: %.8f, Loss: %.8f\n' % (epoch, precision, avg_loss))
 
-            # 记录最高精度与最低loss，保存最新模型与最佳模型
-            if precision > best_precision:
-                best_epoch = epoch
-            best_precision = max(precision, best_precision)
-            lowest_loss = min(avg_loss, lowest_loss)
-            state = {
-                'epoch': epoch,
-                'state_dict': model.state_dict(),
-                'best_precision': best_precision,
-                'lowest_loss': lowest_loss,
-                'stage': stage,
-                'lr': lr,
-            }
-            save_checkpoint(state, os.path.join(config.exp.model_path, "{}.pth".format(epoch)))
-
-    # 记录线下最佳分数
-        with open(config.summary_file, 'a') as acc_file:
-            acc_file.write('* best acc: %.8f  %s\n' % (best_precision, os.path.basename(__file__)))
+                # 记录最高精度与最低loss，保存最新模型与最佳模型
+                if precision >= best_precision:
+                    best_epoch = epoch
+                best_precision = max(precision, best_precision)
+                lowest_loss = min(avg_loss, lowest_loss)
+                state = {
+                    'epoch': epoch,
+                    'state_dict': model.state_dict(),
+                    'best_precision': best_precision,
+                    'lowest_loss': lowest_loss,
+                }
+                save_checkpoint(state, os.path.join(config.exp.model_path, "{}.pth".format(epoch)))
+            elif epoch-1 == config.train.epochs:  # 使用所有数据作为训练集
+                state = {
+                    'epoch': epoch,
+                    'state_dict': model.state_dict(),
+                }
+                save_checkpoint(state, os.path.join(config.exp.model_path, "all_in.pth"))
+        # 记录线下最佳分数
+        if config.val_ratio is not None:
+            with open(config.summary_file, 'a') as acc_file:
+                acc_file.write('%s* best epoch: %d best acc: %.8f lowest loss: %.8f\n' %
+                               (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time())),
+                                best_epoch, best_precision, lowest_loss))
 
     # 读取最佳模型，预测测试集，并生成可直接提交的结果文件
-    best_model = torch.load(os.path.join(config.exp.model_path, "{}.pth".format(best_epoch)))
+    if config.val_ratio is not None:
+        best_model = torch.load(os.path.join(config.exp.model_path, "{}.pth".format(best_epoch)))
+    else:
+        best_model = torch.load(os.path.join(config.exp.model_path, "all_in.pth"))
     model.load_state_dict(best_model['state_dict'])
     test(test_loader=test_loader, model=model)
 
