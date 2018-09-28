@@ -4,6 +4,8 @@ import time
 
 config = edict()
 config.person = "rui.zhang"
+
+config.gpu = '0'
 config.base_path = os.path.join('/home/messor/data_center/alFlaw', config.person)
 if not os.path.exists(config.base_path):
     os.mkdir(config.base_path)
@@ -27,8 +29,8 @@ config.val_ratio = 0.12
 
 config.train.batch_size = 24
 # epoch数量，分stage进行，跑完一个stage后降低学习率进入下一个stage
-config.train.stage_epochs = [5, 10, 15]
-config.train.epochs = 16
+config.train.stage_epochs = [20, 30, 40]
+config.train.epochs = 42
 # 初始学习率
 config.train.lr = 4 * 1e-6 * config.train.batch_size
 # 学习率衰减系数 (new_lr = lr / lr_decay)

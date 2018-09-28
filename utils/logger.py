@@ -27,4 +27,4 @@ class Logger:
         self.logger.info(message)
 
     def destroy(self):
-        shutil(self.config.exp.base, self.config.archive_path)
+        shutil.move(self.config.exp.base, self.config.archive_path)
