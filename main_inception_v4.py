@@ -20,14 +20,21 @@ import torchvision.transforms as transforms
 from torch.utils.data import Dataset, DataLoader
 import time
 from config import config
+from utils.logger import Logger
+import pprint
 
 
 def main():
+
+    # 记录日志
+    logger = Logger(config)
+    logger.info('config:\n{}'.format(pprint.pformat(config)))
     # 随机种子
-    np.random.seed(666)
-    torch.manual_seed(666)
-    torch.cuda.manual_seed_all(666)
-    random.seed(666)
+    seed = 666
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    random.seed(seed)
 
     # 默认使用PIL读图
     def default_loader(path):
@@ -151,12 +158,13 @@ def main():
 
             # 打印耗时与结果
             if i % print_freq == 0:
-                print('Epoch: [{0}][{1}/{2}]\t'
-                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                      'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                      'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                      'Accuray {acc.val:.3f} ({acc.avg:.3f})'.format(
-                    epoch, i, len(train_loader), batch_time=batch_time, data_time=data_time, loss=losses, acc=acc))
+                message = ('Epoch: [{0}][{1}/{2}]\t'
+                           'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                           'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                           'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                           'Accuray {acc.val:.3f} ({acc.avg:.3f})'.format(
+                            epoch, i, len(train_loader), batch_time=batch_time, data_time=data_time, loss=losses, acc=acc))
+                logger.info(message)
 
     # 验证函数
     def validate(val_loader, model, criterion):
@@ -187,14 +195,14 @@ def main():
             end = time.time()
 
             if i % print_freq == 0:
-                print('TrainVal: [{0}/{1}]\t'
-                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                      'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                      'Accuray {acc.val:.3f} ({acc.avg:.3f})'.format(
-                    i, len(val_loader), batch_time=batch_time, loss=losses, acc=acc))
-
-        print(' * Accuray {acc.avg:.3f}'.format(acc=acc), '(Previous Best Acc: %.3f)' % best_precision,
-              ' * Loss {loss.avg:.3f}'.format(loss=losses), 'Previous Lowest Loss: %.3f)' % lowest_loss)
+                message = ('TrainVal: [{0}/{1}]\t'
+                           'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                           'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                           'Accuray {acc.val:.3f} ({acc.avg:.3f})'.format(
+                           i, len(val_loader), batch_time=batch_time, loss=losses, acc=acc))
+                logger.info(message)
+        logger.info(' * Accuray {acc.avg:.3f}'.format(acc=acc), '(Previous Best Acc: %.3f)' % best_precision,
+                    ' * Loss {loss.avg:.3f}'.format(loss=losses), 'Previous Lowest Loss: %.3f)' % lowest_loss)
         return acc.avg, losses.avg
 
     # 测试函数
@@ -235,6 +243,7 @@ def main():
         # 生成结果文件，保存在result文件夹中，可用于直接提交
         submission = pd.DataFrame({'filename': sub_filename, 'label': sub_label})
         submission.to_csv(os.path.join(config.exp.base, 'submission.csv'), header=None, index=False)
+        print("test over")
         return
 
     def adjustLR(optimizer, epoch):
@@ -242,12 +251,13 @@ def main():
         for stage in config.train.stage_epochs:
             if epoch + 1 >= stage:
                 lr /= config.train.lr_decay
-        print("adjust lr to {}".format(lr))
+        logger.info("adjust lr to {}".format(lr))
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
 
     # 保存最新模型以及最优模型
     def save_checkpoint(state, filename):
+        logger.info("save model to {}".format(filename))
         torch.save(state, filename)
 
     # 用于计算精度和时间的变化
@@ -363,13 +373,13 @@ def main():
     if config.load_mode_path is not None:
         checkpoint_path = config.load_mode_path
         if os.path.isfile(checkpoint_path):
-            print("=> loading checkpoint '{}'".format(checkpoint_path))
+            logger.info("=> loading checkpoint '{}'".format(checkpoint_path))
             checkpoint = torch.load(checkpoint_path)
             start_epoch = checkpoint['epoch'] + 1
             best_precision = checkpoint['best_precision']
             lowest_loss = checkpoint['lowest_loss']
             model.load_state_dict(checkpoint['state_dict'])
-            print("=> loaded checkpoint (epoch {})".format(checkpoint['epoch']))
+            logger.info("=> loaded checkpoint (epoch {})".format(checkpoint['epoch']))
         else:
             print("=> no checkpoint found")
     else:
@@ -388,8 +398,7 @@ def main():
                 precision, avg_loss = validate(val_loader, model, criterion)
 
                 # 在日志文件中记录每个epoch的精度和loss
-                with open(config.exp.log_path, 'a') as acc_file:
-                    acc_file.write('Epoch: %2d, Precision: %.8f, Loss: %.8f\n' % (epoch, precision, avg_loss))
+                logger.info('Epoch: %2d, Precision: %.8f, Loss: %.8f\n' % (epoch, precision, avg_loss))
 
                 # 记录最高精度与最低loss，保存最新模型与最佳模型
                 if precision >= best_precision:
@@ -412,9 +421,9 @@ def main():
         # 记录线下最佳分数
         if config.val_ratio is not None:
             with open(config.summary_file, 'a') as acc_file:
-                acc_file.write('%s* best epoch: %d best acc: %.8f lowest loss: %.8f\n' %
+                acc_file.write('%s* num_classes: %d best epoch: %d best acc: %.8f lowest loss: %.8f\n' %
                                (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time())),
-                                best_epoch, best_precision, lowest_loss))
+                                config.train.num_classes, best_epoch, best_precision, lowest_loss))
 
     # 读取最佳模型，预测测试集，并生成可直接提交的结果文件
     if config.val_ratio is not None:
@@ -426,6 +435,8 @@ def main():
 
     # 释放GPU缓存
     torch.cuda.empty_cache()
+    # 归档日志
+    logger.destroy()
 
 
 if __name__ == '__main__':
