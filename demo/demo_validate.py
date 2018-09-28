@@ -63,5 +63,5 @@ def main(model_path):
 
 
 if __name__ == '__main__':
-    model_path = "/home/messor/data_center/alFlaw/rui.zhang/archive/12_classes_97_665/models/41.pth"
+    model_path = "/home/messor/data_center/alFlaw/rui.zhang/12_classes_2018-09-28 14:06:49/models/41.pth"
     main(model_path)

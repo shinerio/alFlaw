@@ -19,8 +19,8 @@ from config import config
 from utils.logger import Logger
 from utils.adjuster import adjustLR
 import pprint
-from TestDataset import TestDataset
-from TrainDataset import TrainDataset
+from data.TestDataset import TestDataset
+from data.TrainDataset import TrainDataset
 from inference import train, test, validate
 
 
@@ -180,7 +180,7 @@ def main():
     else:
         best_model = torch.load(os.path.join(config.exp.model_path, "all_in.pth".format(epoch)))
     model.load_state_dict(best_model['state_dict'])
-    test(test_loader=test_loader, model=model, out_path=os.path.join(config.config.exp.base, "submission.csv"))
+    test(test_loader=test_loader, model=model, out_path=os.path.join(config.exp.base, "submission.csv"))
 
     # 释放GPU缓存
     torch.cuda.empty_cache()
