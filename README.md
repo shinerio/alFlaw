@@ -1,5 +1,5 @@
-# 天池图像比赛Baseline分享
-[2018广东工业智造大数据创新大赛——智能算法赛](https://tianchi.aliyun.com/competition/introduction.htm?spm=5176.11165320.5678.1.54114443WSKVPP&raceId=231682)，未调参情况下线上`0.921`
+# 天池图像比赛
+[2018广东工业智造大数据创新大赛——智能算法赛](https://tianchi.aliyun.com/competition/introduction.htm?spm=5176.11165320.5678.1.54114443WSKVPP&raceId=231682)
 ---
 ## 运行代码前，需要将图片放在data目录下，目录树如下：
     
@@ -10,9 +10,14 @@
     
 
 ---
-## 代码运行方式：
+
+## 结构说明：
+ 
+    更改config.person = "your name"，程序运行期间产生的所有日志，模型，结果文件都会存在data_center/alFlaw/yourname文件夹下
     
-    更改config.person = "your name"，程序运行期间产生的所有日志，模型，结果文件都会存在data_center/alFlaw/yourname文件夹下，跑完的结果文件会自动移到archive
+    跑完的结果文件会自动移到archive
+    
+     
     参考文件目录
     |--data_center/alFlaw/rui.zhang
            |--archive 运行完train后，结果文件会自动移到该目录下
@@ -21,7 +26,11 @@
            |--result   test后结果文件存放
            |--summary.txt  历次运行结果统计
            |--num_classes_time 运行期间缓存文件，运行完会移动到archive文件夹下，程序异常中断不会移动，可以自行选择保留或删除 
-       
+
+---     
+
+## 代码运行方式：
+    
     生成label
 	python demo/demo_generate_label.py
     训练，验证，测试
