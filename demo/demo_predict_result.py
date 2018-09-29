@@ -44,7 +44,7 @@ def main(model_path, out_path):
 
 
 if __name__ == '__main__':
-    model_path = "/home/messor/data_center/alFlaw/rui.zhang/archive/12_classes_97_665/models/41.pth"
+    model_path = "/home/messor/data_center/alFlaw/rui.zhang/2_classes_2018-09-29 07:42:13/models/32.pth"
     out_path = "/home/messor/data_center/alFlaw/rui.zhang/result/{}_submission.csv"\
         .format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time())))
     main(model_path, out_path)

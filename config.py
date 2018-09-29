@@ -27,12 +27,12 @@ config.test.imageList = os.path.join(config.base_path, 'test.csv')
 config.workers = 12
 config.val_ratio = 0.12
 
-config.train.batch_size = 24
+config.train.batch_size = 60
 # epoch数量，分stage进行，跑完一个stage后降低学习率进入下一个stage
-config.train.stage_epochs = [20, 30, 40]
+config.train.stage_epochs = [10, 20, 30, 40]
 config.train.epochs = 42
 # 初始学习率
-config.train.lr = 4 * 1e-6 * config.train.batch_size
+config.train.lr = 20 * 1e-6 * config.train.batch_size
 # 学习率衰减系数 (new_lr = lr / lr_decay)
 config.train.lr_decay = 5
 # 正则化系数
