@@ -27,12 +27,12 @@ config.test.imageList = os.path.join(config.base_path, 'test.csv')
 config.workers = 12
 config.val_ratio = 0.12
 
-config.train.batch_size = 60
+config.train.batch_size = 24
 # epoch数量，分stage进行，跑完一个stage后降低学习率进入下一个stage
-config.train.stage_epochs = [10, 20, 30, 40]
+config.train.stage_epochs = [20, 30, 40]
 config.train.epochs = 42
 # 初始学习率
-config.train.lr = 20 * 1e-6 * config.train.batch_size
+config.train.lr = 4 * 1e-6 * config.train.batch_size
 # 学习率衰减系数 (new_lr = lr / lr_decay)
 config.train.lr_decay = 5
 # 正则化系数
@@ -46,7 +46,8 @@ config.exp.base = os.path.join(config.base_path, "{}_classes_".format(config.tra
 config.exp.log_path = os.path.join(config.exp.base, "log.txt")
 config.exp.model_path = os.path.join(config.exp.base, "models")
 config.summary_file = os.path.join(config.base_path, 'summary.txt')
-config.load_mode_path = None
+config.load_mode_path = "/home/messor/data_center/alFlaw/rui.zhang/archive/2_classes_2018-09-29 07:42:13/models/25.pth"
+
 # 程序执行完成后，日志模型存档文件夹
 config.archive_path = os.path.join(config.base_path, "archive")
 if not os.path.exists(config.archive_path):
